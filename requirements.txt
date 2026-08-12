@@ -1,0 +1,4 @@
+pyTelegramBotAPI==4.36.0
+requests
+psycopg2-binary
+Pillow
