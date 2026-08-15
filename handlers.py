@@ -250,7 +250,7 @@ def register_handlers(bot):
             file_info = bot.get_file(message.photo[-1].file_id)
             downloaded_file = bot.download_file(file_info.file_path)
             image_base64 = base64.b64encode(downloaded_file).decode('utf-8')
-            reply = ask_text_ai(username, user_text, user_id, image_base64=image_base64)
+            reply = ask_text_ai(username, user_text, user_id, media_base64=image_base64)
             left_str = "Безлимит" if left > 1000 else f"{left}/50"
             bot.reply_to(message, reply)
         except Exception:
@@ -283,7 +283,7 @@ def register_handlers(bot):
             sticker_emoji = message.sticker.emoji or ""
             prompt_text = f"Опиши и оцени этот стикер (прикрепленный эмодзи: '{sticker_emoji}'). Прокомментируй его в своём стиле."
 
-            reply = ask_text_ai(username, prompt_text, user_id, image_base64=image_base64, mime_type="image/jpeg")
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64, mime_type="image/jpeg")
             left_str = "Безлимит" if left > 1000 else f"{left}/50"
             bot.reply_to(message, reply)
 
@@ -309,7 +309,7 @@ def register_handlers(bot):
 
             caption_text = message.caption if message.caption else "Что происходит на этой гифке?"
 
-            reply = ask_text_ai(username, caption_text, user_id, image_base64=image_base64, mime_type=mime_type)
+            reply = ask_text_ai(username, caption_text, user_id, media_base64=image_base64, mime_type=mime_type)
             left_str = "Безлимит" if left > 1000 else f"{left}/50"
             bot.reply_to(message, reply)
 
@@ -356,13 +356,35 @@ def register_handlers(bot):
 
             caption_text = message.caption if message.caption else "Что происходит на этом видео?"
 
-            reply = ask_text_ai(username, caption_text, user_id, image_base64=image_base64, mime_type=mime_type)
+            reply = ask_text_ai(username, caption_text, user_id, media_base64=image_base64, mime_type=mime_type)
             left_str = "Безлимит" if left > 1000 else f"{left}/50"
             bot.reply_to(message, reply)
 
         except Exception as e:
             print(f"[-] Ошибка обработки видео: {e}")
             bot.reply_to(message, "🚨 Не удалось разобрать видео.")
+
+    @bot.message_handler(content_types=['voice'])
+    def handle_incoming_voice(message):
+        if not should_respond(message): return
+        user_id = message.from_user.id
+        username = f"@{message.from_user.username}" if message.from_user.username else f"Юзер_{message.chat.id}"
+        if is_flooding(user_id): return
+        allowed, left = check_and_increment_daily_limit(user_id)
+        if not allowed: return
+
+        try:
+            file_info = bot.get_file(message.voice.file_id)
+            downloaded_file = bot.download_file(file_info.file_path)
+            mime_type = message.voice.mime_type or "audio/ogg"
+            audio_base64 = base64.b64encode(downloaded_file).decode('utf-8')
+            prompt_text = "Распознай и расшифруй речь из голосового сообщения и ответь по сути сказанного."
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=audio_base64, mime_type=mime_type)
+            left_str = "Безлимит" if left > 1000 else f"{left}/50"
+            bot.reply_to(message, reply)
+        except Exception as e:
+            print(f"[-] Ошибка обработки голосового сообщения: {e}")
+            bot.reply_to(message, "🚨 Не удалось распознать голосовое сообщение.")
 
     @bot.message_handler(func=lambda message: True)
     def echo_all(message):

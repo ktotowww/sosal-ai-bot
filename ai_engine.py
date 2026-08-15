@@ -6,7 +6,7 @@ from database import get_user_config, get_user_context, save_user_context
 
 logger = logging.getLogger(__name__)
 
-def request_google_studio(model_slug, history, current_text, image_base64=None, mime_type="image/jpeg"):
+def request_google_studio(model_slug, history, current_text, media_base64=None, mime_type="image/jpeg"):
     if not GOOGLE_API_KEY: return None
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_slug}:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
@@ -17,8 +17,8 @@ def request_google_studio(model_slug, history, current_text, image_base64=None, 
         contents.append({"role": role, "parts": [{"text": msg["text"]}]})
         
     current_parts = [{"text": current_text}]
-    if image_base64:
-        current_parts.append({"inlineData": {"mimeType": mime_type, "data": image_base64}})
+    if media_base64:
+        current_parts.append({"inlineData": {"mimeType": mime_type, "data": media_base64}})
         
     contents.append({"role": "user", "parts": current_parts})
     
@@ -67,24 +67,24 @@ def request_google_studio(model_slug, history, current_text, image_base64=None, 
         logger.error(f"Ошибка Google API Studio ({model_slug}): {e}")
     return None
 
-def ask_text_ai(username, text, real_user_id, image_base64=None, mime_type="image/jpeg", bypass_history=False):
+def ask_text_ai(username, text, real_user_id, media_base64=None, mime_type="image/jpeg", bypass_history=False):
     config = get_user_config(real_user_id)
     chosen_model = config["text_model"]
     
-    if image_base64 and "gemma" in chosen_model:
-        return "⚠️ Модуль компьютерного зрения доступен только на чипах серии GEMINI FLASH. Переключи движок вычислителя в /models."
+    if media_base64 and "gemma" in chosen_model:
+        return "⚠️ Модуль мультимедиа доступен только на чипах серии GEMINI FLASH. Переключи движок вычислителя в /models."
         
     history = [] if bypass_history else get_user_context(real_user_id)
     formatted_user_text = text if bypass_history else f"[{username}]: {text}"
 
-    result = request_google_studio(chosen_model, history, formatted_user_text, image_base64, mime_type)
+    result = request_google_studio(chosen_model, history, formatted_user_text, media_base64, mime_type)
 
     if not result and chosen_model == DEFAULT_TEXT_MODEL:
         logger.warning(f"Gemini Flash не ответил. Перегруз на {FALLBACK_GEMMA_MODEL}...")
-        result = request_google_studio(FALLBACK_GEMMA_MODEL, history, formatted_user_text, image_base64, mime_type)
+        result = request_google_studio(FALLBACK_GEMMA_MODEL, history, formatted_user_text, media_base64, mime_type)
 
     if not result and chosen_model != DEFAULT_TEXT_MODEL:
-        result = request_google_studio(DEFAULT_TEXT_MODEL, history, formatted_user_text, image_base64, mime_type)
+        result = request_google_studio(DEFAULT_TEXT_MODEL, history, formatted_user_text, media_base64, mime_type)
 
     if result and not bypass_history:
         if "🚨" not in result and "⚠️" not in result:

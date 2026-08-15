@@ -60,7 +60,7 @@ def handle_raw_guest_update(bot_instance, message_or_update):
             downloaded_file = bot_instance.download_file(file_info.file_path)
             image_base64 = base64.b64encode(downloaded_file).decode('utf-8')
             prompt_text = user_text if user_text else "Что на фото?"
-            reply = ask_text_ai(username, prompt_text, user_id, image_base64=image_base64)
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64)
             send_answer_guest_query(bot_instance, guest_query_id, reply)
             return
 
@@ -80,7 +80,7 @@ def handle_raw_guest_update(bot_instance, message_or_update):
 
             sticker_emoji = getattr(sticker, 'emoji', "") or ""
             prompt_text = user_text or f"Опиши и оцени этот стикер (прикрепленный эмодзи: '{sticker_emoji}'). Прокомментируй его в своём стиле."
-            reply = ask_text_ai(username, prompt_text, user_id, image_base64=image_base64, mime_type="image/jpeg")
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64, mime_type="image/jpeg")
             send_answer_guest_query(bot_instance, guest_query_id, reply)
             return
 
@@ -91,7 +91,18 @@ def handle_raw_guest_update(bot_instance, message_or_update):
             mime_type = getattr(video, 'mime_type', None) or "video/mp4"
             image_base64 = base64.b64encode(downloaded_file).decode('utf-8')
             prompt_text = user_text if user_text else "Что происходит на этом видео?"
-            reply = ask_text_ai(username, prompt_text, user_id, image_base64=image_base64, mime_type=mime_type)
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64, mime_type=mime_type)
+            send_answer_guest_query(bot_instance, guest_query_id, reply)
+            return
+
+        voice = getattr(msg, 'voice', None)
+        if voice:
+            file_info = bot_instance.get_file(voice.file_id)
+            downloaded_file = bot_instance.download_file(file_info.file_path)
+            mime_type = getattr(voice, 'mime_type', None) or "audio/ogg"
+            audio_base64 = base64.b64encode(downloaded_file).decode('utf-8')
+            prompt_text = "Распознай и расшифруй речь из голосового сообщения и ответь по сути сказанного."
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=audio_base64, mime_type=mime_type)
             send_answer_guest_query(bot_instance, guest_query_id, reply)
             return
 
