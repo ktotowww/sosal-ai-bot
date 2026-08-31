@@ -46,6 +46,15 @@ def init_db():
                     """)
                     cur.execute("ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS context JSONB DEFAULT '[]'::jsonb;")
                     cur.execute("ALTER TABLE bot_users ADD COLUMN IF NOT EXISTS is_premium BOOLEAN DEFAULT FALSE;")
+
+                    cur.execute("""
+                        CREATE TABLE IF NOT EXISTS user_profiles (
+                            user_id    BIGINT PRIMARY KEY,
+                            username   VARCHAR(100),
+                            profile    TEXT DEFAULT '',
+                            updated_at TIMESTAMP DEFAULT NOW()
+                        );
+                    """)
         except Exception as e:
             logger.error(f"Ошибка инициализации БД: {e}")
 
