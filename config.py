@@ -9,7 +9,7 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 ADMIN_ID = int(os.environ.get("ADMIN_ID", 0))
 PORT = int(os.environ.get("PORT", 10000))
 
-DEFAULT_TEXT_MODEL = "gemini-3.1-flash-lite"
+DEFAULT_TEXT_MODEL = "gemini-3.5-flash-lite"
 FALLBACK_GEMMA_MODEL = "gemma-4-31b-it"
 COOLDOWN_TIME = 0        
 MAX_DAILY_REQUESTS = 50   
