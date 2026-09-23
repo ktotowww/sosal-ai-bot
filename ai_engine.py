@@ -56,7 +56,10 @@ def _extract_profile_background(user_id, username, user_text):
         logger.error(f"Ошибка извлечения профиля @{username}: {e}")
 
 def request_google_studio(model_slug, history, current_text, media_base64=None, mime_type="image/jpeg", system_prompt_override=None):
-    if not GOOGLE_API_KEY: return None
+    if not GOOGLE_API_KEY:
+        logger.error("GOOGLE_API_KEY не установлен!")
+        return None
+
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_slug}:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
 
@@ -83,38 +86,43 @@ def request_google_studio(model_slug, history, current_text, media_base64=None, 
         ]
     }
 
-    if "gemma" in model_slug.lower():
-        payload["generationConfig"] = {
-            "thinkingConfig": {
-                "thinkingBudget": 0
-            }
-        }
-
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=20)
         if response.status_code == 200:
             res_json = response.json()
-            try:
-                parts = res_json['candidates'][0]['content']['parts']
-                text_parts = [part.get("text", "") for part in parts if not part.get("thought")]
-                result = "".join(text_parts).strip()
-                
-                result = re.sub(r'<\|channel\|>thought.*?<\|channel\|>', '', result, flags=re.DOTALL)
-                result = re.sub(r'<\|channel>thought.*?<channel\|>', '', result, flags=re.DOTALL)
-                result = re.sub(r'<\|channel\|>.*?<\|channel\|>', '', result, flags=re.DOTALL)
-                result = re.sub(r'<\|channel>.*?<channel\|>', '', result, flags=re.DOTALL)
-                result = re.sub(r'<thought>.*?</thought>', '', result, flags=re.DOTALL)
-                
-                return result.strip() if result.strip() else None
-            except (KeyError, IndexError):
-                try:
-                    return res_json['candidates'][0]['content']['parts'][0]['text'].strip()
-                except Exception:
-                    return None
+            candidates = res_json.get('candidates', [])
+            if not candidates:
+                logger.warning(f"Google API [{model_slug}] вернул пустой список candidates: {res_json}")
+                return None
+            
+            candidate = candidates[0]
+            content = candidate.get('content', {})
+            parts = content.get('parts', [])
+            
+            if not parts:
+                logger.warning(f"У candidate нет частей (finishReason: {candidate.get('finishReason')}): {res_json}")
+                return None
+
+            # Собираем весь текст из всех parts, не отбрасывая thought
+            raw_text_list = []
+            for part in parts:
+                if isinstance(part, dict) and "text" in part:
+                    raw_text_list.append(part["text"])
+
+            full_text = "".join(raw_text_list).strip()
+
+            # Чистим теги рассуждений вручную
+            clean_text = re.sub(r'<thought>.*?</thought>', '', full_text, flags=re.DOTALL)
+            clean_text = re.sub(r'<\|channel\|>.*?<\|channel\|>', '', clean_text, flags=re.DOTALL)
+            clean_text = clean_text.strip()
+
+            # Если после очистки что-то осталось — возвращаем, иначе отдаём исходный текст
+            return clean_text if clean_text else full_text
         else:
-            logger.error(f"Google API [{model_slug}] ошибка HTTP {response.status_code}")
+            logger.error(f"Google API [{model_slug}] ошибка HTTP {response.status_code}: {response.text}")
     except Exception as e:
         logger.error(f"Ошибка Google API Studio ({model_slug}): {e}")
+
     return None
 
 def ask_text_ai(username, text, real_user_id, media_base64=None, mime_type="image/jpeg", bypass_history=False):
