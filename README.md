@@ -14,7 +14,7 @@
 * **Язык:** Python 3.10+
 * **Фреймворк:** `pyTelegramBotAPI`
 * **База данных:** PostgreSQL (`psycopg2`)
-* **AI Engine:** Google AI Studio API (Gemini 3.1 Flash / Gemma 4)
+* **AI Engine:** Google AI Studio API (Gemini 3.5 Flash / Gemma 4)
 * **Деплой:** Поддержка Render.com (Web Service + Secret Files)
 
 ## Быстрый старт

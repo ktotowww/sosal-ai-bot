@@ -76,7 +76,7 @@ def register_handlers(bot):
         config = get_user_config(user_id)
         markup = InlineKeyboardMarkup()
 
-        t_gemini = "✅ Gemini Flash" if config["text_model"] == "gemini-3.1-flash-lite" else "Gemini Flash"
+        t_gemini = "✅ Gemini Flash" if config["text_model"] == "gemini-3.5-flash-lite" else "Gemini Flash"
         t_gemma31 = "✅ Gemma 4 31B (Unlimited)" if config["text_model"] == "gemma-4-31b-it" else "Gemma 4 31B (Unlimited)"
         t_gemma26 = "✅ Gemma 4 26B (Unlimited)" if config["text_model"] == "gemma-4-26b-a4b-it" else "Gemma 4 26B (Unlimited)"
 
@@ -84,7 +84,7 @@ def register_handlers(bot):
         i_zimage = "✅ ZImage (No Cens)" if config["image_model"] == "zimage" else "ZImage (No Cens)"
 
         markup.row(InlineKeyboardButton("📝 ТЕКСТОВЫЕ ДВИЖКИ GOOGLE STUDIO:", callback_data="void"))
-        markup.row(InlineKeyboardButton(t_gemini, callback_data="ui_txt_gemini-3.1-flash-lite"))
+        markup.row(InlineKeyboardButton(t_gemini, callback_data="ui_txt_gemini-3.5-flash-lite"))
         markup.row(InlineKeyboardButton(t_gemma31, callback_data="ui_txt_gemma-4-31b-it"), InlineKeyboardButton(t_gemma26, callback_data="ui_txt_gemma-4-26b-a4b-it"))
 
         markup.row(InlineKeyboardButton("🎨 ГРАФИЧЕСКИЕ ДВИЖКИ (POLLINATIONS):", callback_data="void"))
