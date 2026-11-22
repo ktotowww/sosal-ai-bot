@@ -7,12 +7,14 @@ import logging
 from PIL import Image
 import telebot
 from telebot import apihelper
+from telebot.types import InlineQueryResultPhoto
 
 from config import TELEGRAM_TOKEN
-from database import init_db, is_flooding, check_and_increment_daily_limit
+from database import init_db, is_flooding, check_and_increment_daily_limit, get_user_config
 from handlers import register_handlers, send_answer_guest_query
 from server import run_dummy_server
 from ai_engine import ask_text_ai
+from images import parse_pic_command, build_pollinations_url, is_pic_command
 from git_analyzer import fetch_github_repo, process_repo_zip
 from github_comparator import compare_github_targets
 
@@ -60,7 +62,7 @@ def handle_raw_guest_update(bot_instance, message_or_update):
             downloaded_file = bot_instance.download_file(file_info.file_path)
             image_base64 = base64.b64encode(downloaded_file).decode('utf-8')
             prompt_text = user_text if user_text else "Что на фото?"
-            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64)
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64, guest=True)
             send_answer_guest_query(bot_instance, guest_query_id, reply)
             return
 
@@ -80,7 +82,7 @@ def handle_raw_guest_update(bot_instance, message_or_update):
 
             sticker_emoji = getattr(sticker, 'emoji', "") or ""
             prompt_text = user_text or f"Опиши и оцени этот стикер (прикрепленный эмодзи: '{sticker_emoji}'). Прокомментируй его в своём стиле."
-            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64, mime_type="image/jpeg")
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64, mime_type="image/jpeg", guest=True)
             send_answer_guest_query(bot_instance, guest_query_id, reply)
             return
 
@@ -91,7 +93,7 @@ def handle_raw_guest_update(bot_instance, message_or_update):
             mime_type = getattr(video, 'mime_type', None) or "video/mp4"
             image_base64 = base64.b64encode(downloaded_file).decode('utf-8')
             prompt_text = user_text if user_text else "Что происходит на этом видео?"
-            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64, mime_type=mime_type)
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=image_base64, mime_type=mime_type, guest=True)
             send_answer_guest_query(bot_instance, guest_query_id, reply)
             return
 
@@ -102,8 +104,46 @@ def handle_raw_guest_update(bot_instance, message_or_update):
             mime_type = getattr(voice, 'mime_type', None) or "audio/ogg"
             audio_base64 = base64.b64encode(downloaded_file).decode('utf-8')
             prompt_text = "Распознай и расшифруй речь из голосового сообщения и ответь по сути сказанного."
-            reply = ask_text_ai(username, prompt_text, user_id, media_base64=audio_base64, mime_type=mime_type)
+            reply = ask_text_ai(username, prompt_text, user_id, media_base64=audio_base64, mime_type=mime_type, guest=True)
             send_answer_guest_query(bot_instance, guest_query_id, reply)
+            return
+
+        command_text = user_text.strip()
+        if is_pic_command(command_text):
+            model_override, raw_prompt = parse_pic_command(command_text)
+            if not raw_prompt:
+                send_answer_guest_query(
+                    bot_instance,
+                    guest_query_id,
+                    "Напиши промт: /pic [flux|zimage] сишник плачет над сегфолтом",
+                )
+                return
+
+            chosen_img_model = model_override or get_user_config(user_id)["image_model"]
+            seed = f"{user_id}-{int(time.time())}"
+            photo_url = build_pollinations_url(raw_prompt, chosen_img_model, seed=seed, enhance=False)
+            thumbnail_url = build_pollinations_url(
+                raw_prompt,
+                chosen_img_model,
+                width=320,
+                height=320,
+                seed=seed,
+                enhance=False,
+            )
+
+            try:
+                result = InlineQueryResultPhoto(
+                    id=f"guest_pic_{seed}",
+                    photo_url=photo_url,
+                    thumbnail_url=thumbnail_url,
+                    title="Sosal AI Art",
+                    description=f"Модуль: {chosen_img_model.upper()}",
+                    caption=f"🖼 Модуль: {chosen_img_model.upper()}",
+                )
+                bot_instance.answer_guest_query(guest_query_id, result)
+            except Exception as e:
+                logger.error(f"Ошибка guest /pic: {e}")
+                send_answer_guest_query(bot_instance, guest_query_id, "Графический чип упал в сегфолт.")
             return
 
         if user_text.startswith("/gitv") or ("github.com/" in user_text.lower() and "сравни" not in user_text.lower()):
@@ -132,18 +172,18 @@ def handle_raw_guest_update(bot_instance, message_or_update):
                     f"Репозиторий GitHub: {repo_url}\nЗАПРОС: {user_comment}\n\n"
                     f"СТРУКТУРА:\n```\n{tree_str}\n```\n\nСОДЕРЖИМОЕ:\n{code_str}"
                 )
-                reply = ask_text_ai(username, full_ai_prompt, user_id)
+                reply = ask_text_ai(username, full_ai_prompt, user_id, guest=True)
                 send_answer_guest_query(bot_instance, guest_query_id, reply)
                 return
 
         if "сравни" in user_text.lower():
-            compare_res = compare_github_targets(user_text, username, user_id)
+            compare_res = compare_github_targets(user_text, username, user_id, guest=True)
             if compare_res:
                 send_answer_guest_query(bot_instance, guest_query_id, compare_res)
                 return
 
         if user_text:
-            reply = ask_text_ai(username, user_text, user_id)
+            reply = ask_text_ai(username, user_text, user_id, guest=True)
             send_answer_guest_query(bot_instance, guest_query_id, reply)
 
     except Exception as e:

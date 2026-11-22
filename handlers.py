@@ -1,19 +1,23 @@
 import io
 from PIL import Image
+import logging
+import threading
 import time
 import base64
-import urllib.parse
-import psycopg2
-import requests
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
-from config import ADMIN_ID, DATABASE_URL, TELEGRAM_TOKEN
+from telebot.apihelper import ApiTelegramException
+from config import ADMIN_ID
 from database import (
     is_flooding, check_and_increment_daily_limit, get_user_config,
-    update_user_config, save_user_context
+    update_user_config, save_user_context, get_admin_stats,
+    get_all_user_ids, set_user_premium
 )
 from ai_engine import ask_text_ai
+from images import parse_pic_command, build_pollinations_url
 from git_analyzer import fetch_github_repo, process_repo_zip
 from github_comparator import compare_github_targets
+
+logger = logging.getLogger(__name__)
 
 BOT_USERNAME = None
 BOT_ID = None
@@ -34,7 +38,51 @@ def send_answer_guest_query(bot_instance, guest_query_id, text, title="Sosal AI 
         )
         bot_instance.answer_guest_query(guest_query_id, result)
     except Exception as e:
-        print(f"[-] Ошибка send_answer_guest_query: {e}")
+        logger.error(f"Ошибка send_answer_guest_query: {e}")
+
+
+def _run_broadcast(bot_instance, admin_chat_id, text):
+    user_ids = get_all_user_ids()
+    sent = 0
+    failed = 0
+
+    for user_id in user_ids:
+        try:
+            bot_instance.send_message(user_id, text, disable_web_page_preview=True)
+            sent += 1
+        except ApiTelegramException as e:
+            if e.error_code == 429:
+                retry_after = 5
+                try:
+                    retry_after = int(e.result_json.get("parameters", {}).get("retry_after", 5))
+                except Exception:
+                    pass
+                logger.warning(f"Broadcast: flood limit, пауза {retry_after} сек.")
+                time.sleep(retry_after)
+                try:
+                    bot_instance.send_message(user_id, text, disable_web_page_preview=True)
+                    sent += 1
+                    continue
+                except Exception as retry_error:
+                    logger.warning(f"Broadcast {user_id} после retry: {retry_error}")
+            elif e.error_code not in (400, 403):
+                logger.warning(f"Broadcast {user_id}: {e}")
+            failed += 1
+        except Exception as e:
+            failed += 1
+            logger.warning(f"Broadcast {user_id}: {e}")
+        time.sleep(0.05)
+
+    try:
+        bot_instance.send_message(
+            admin_chat_id,
+            f"📢 Рассылка завершена\n"
+            f"✅ Доставлено: {sent}\n"
+            f"❌ Ошибок: {failed}\n"
+            f"👥 Всего: {len(user_ids)}",
+        )
+    except Exception as e:
+        logger.error(f"Broadcast: не удалось отправить отчёт админу: {e}")
 
 def register_handlers(bot):
     global BOT_USERNAME, BOT_ID
@@ -140,7 +188,7 @@ def register_handlers(bot):
         elif "ktotowww" in username:
             bot.reply_to(message, "Приветствую, о Великий @ktotowww! Я готов компилировать код под Sosaltix2! Панель: /models.")
         else:
-            bot.reply_to(message, "Че надо? Настройки моделей: /models, генерация картинок: /pic.")
+            bot.reply_to(message, "Че надо? Настройки моделей: /models, генерация картинок: /pic [flux|zimage].")
 
     @bot.message_handler(commands=['pic', 'meme'])
     def generate_meme(message):
@@ -153,25 +201,42 @@ def register_handlers(bot):
             bot.reply_to(message, "❌ ЛИМИТ ИСЧЕРПАН! Приходи завтра.")
             return
 
-        user_prompt = message.text.split(maxsplit=1)
-        if len(user_prompt) < 2:
-            bot.reply_to(message, "Напиши промт: /pic сишник плачет над сегфолтом")
+        model_override, raw_prompt_text = parse_pic_command(message.text)
+        if not raw_prompt_text:
+            bot.reply_to(message, "Напиши промт: /pic [flux|zimage] сишник плачет над сегфолтом")
             return
 
-        raw_prompt_text = user_prompt[1]
         config = get_user_config(user_id)
-        chosen_img_model = config["image_model"]
+        chosen_img_model = model_override or config["image_model"]
         bot.reply_to(message, f"🎛 Компилятор задействует ядро {chosen_img_model.upper()}... Рендерю арт, жди.")
 
-        system_prompter = "Translate from Russian to English and expand into detailed prompt. Output ONLY English."
-        enhanced_prompt = ask_text_ai("System_Prompter", f"{system_prompter}\n\nUser request: {raw_prompt_text}", user_id, bypass_history=True)
-        if "🚨" in enhanced_prompt or len(enhanced_prompt) > 1000: enhanced_prompt = raw_prompt_text
+        translator_prompt = (
+            "Ты — переводчик промптов для генератора изображений. "
+            "Переведи запрос пользователя с русского на английский и разверни в детальный "
+            "визуальный промпт. Выводи ТОЛЬКО английский промпт, без пояснений и кавычек."
+        )
+        enhanced_prompt = ask_text_ai(
+            "System_Prompter",
+            f"User request: {raw_prompt_text}",
+            user_id,
+            bypass_history=True,
+            system_prompt_override=translator_prompt,
+        )
+        if not enhanced_prompt or "🚨" in enhanced_prompt or len(enhanced_prompt) > 1000:
+            enhanced_prompt = raw_prompt_text
 
         try:
-            encoded_prompt = urllib.parse.quote(enhanced_prompt)
-            final_image_url = f"https://image.pollinations.ai/p/{encoded_prompt}?model={chosen_img_model}&width=1024&height=1024&nologo=true&enhance=true&private=true"
+            final_image_url = build_pollinations_url(
+                enhanced_prompt,
+                chosen_img_model,
+                seed=int(time.time()),
+            )
             left_str = "Безлимит" if left > 1000 else f"{left}/50"
-            bot.send_photo(message.chat.id, final_image_url, caption=f"🖼 Модуль: {chosen_img_model.upper()}")
+            bot.send_photo(
+                message.chat.id,
+                final_image_url,
+                caption=f"🖼 Модуль: {chosen_img_model.upper()} · Осталось: {left_str}",
+            )
         except Exception:
             bot.reply_to(message, "Графический чип упал в сегфолт.")
 
@@ -221,20 +286,101 @@ def register_handlers(bot):
             return
         args = message.text.split(maxsplit=2)
         if len(args) == 1:
-            bot.reply_to(message, "🛠 `/admin stats` | `/admin broadcast <текст>` | `/admin premium <id> [on/off]`", parse_mode="Markdown")
+            bot.reply_to(
+                message,
+                "🛠 **Админ-панель**\n"
+                "`/admin stats` — статистика\n"
+                "`/admin broadcast <текст>` — рассылка\n"
+                "`/admin premium <id> [on/off]` — premium-доступ",
+                parse_mode="Markdown",
+            )
             return
 
         subcommand = args[1].lower()
-        if subcommand == "stats" and DATABASE_URL:
-            conn = psycopg2.connect(DATABASE_URL)
-            cur = conn.cursor()
-            cur.execute("SELECT COUNT(*) FROM bot_users;")
-            total_users = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*), COALESCE(SUM(daily_count), 0) FROM bot_users WHERE last_request_date = CURRENT_DATE;")
-            active_today, requests_today = cur.fetchone()
-            cur.close()
-            conn.close()
-            bot.reply_to(message, f"👤 Пользователей: `{total_users}`\n🏃 Активных: `{active_today}`\n📈 Запросов: `{requests_today}`", parse_mode="Markdown")
+
+        if subcommand == "stats":
+            stats = get_admin_stats()
+            if not stats:
+                bot.reply_to(message, "❌ База данных недоступна.")
+                return
+
+            models_text = "\n".join(
+                f"  `{model}` — {count}"
+                for model, count in stats["models"][:5]
+            ) or "  —"
+
+            bot.reply_to(
+                message,
+                "📊 **Статистика Sosal AI**\n\n"
+                f"👤 Всего пользователей: `{stats['total_users']}`\n"
+                f"🟢 Активных сегодня: `{stats['active_today']}`\n"
+                f"📈 Запросов сегодня: `{stats['requests_today']}`\n"
+                f"🧮 Запросов всего: `{stats['total_requests']}`\n"
+                f"💎 Premium: `{stats['premium_users']}`\n\n"
+                f"🤖 **Модели:**\n{models_text}",
+                parse_mode="Markdown",
+            )
+            return
+
+        if subcommand == "broadcast":
+            if len(args) < 3 or not args[2].strip():
+                bot.reply_to(message, "⚠️ Использование: `/admin broadcast <текст>`", parse_mode="Markdown")
+                return
+
+            text = args[2].strip()
+            if len(text) > 4000:
+                bot.reply_to(message, "❌ Текст длиннее 4000 символов. Сократи.")
+                return
+
+            recipients = len(get_all_user_ids())
+            if recipients == 0:
+                bot.reply_to(message, "❌ В базе нет пользователей.")
+                return
+
+            bot.reply_to(message, f"📢 Рассылка запущена. Получателей: `{recipients}`.", parse_mode="Markdown")
+            threading.Thread(
+                target=_run_broadcast,
+                args=(bot, message.chat.id, text),
+                daemon=True,
+            ).start()
+            return
+
+        if subcommand == "premium":
+            if len(args) < 3:
+                bot.reply_to(message, "⚠️ Использование: `/admin premium <id> [on/off]`", parse_mode="Markdown")
+                return
+
+            parts = args[2].split(maxsplit=1)
+            try:
+                target_id = int(parts[0])
+            except ValueError:
+                bot.reply_to(message, "❌ ID должен быть числом.")
+                return
+
+            mode = parts[1].strip().lower() if len(parts) > 1 else None
+            if mode in ("on", "вкл", "1"):
+                enabled = True
+            elif mode in ("off", "выкл", "0"):
+                enabled = False
+            elif mode is None:
+                enabled = None
+            else:
+                bot.reply_to(message, "❌ Укажи `on` или `off`.")
+                return
+
+            result = set_user_premium(target_id, enabled)
+            if result is None:
+                bot.reply_to(message, "❌ Не удалось обновить пользователя.")
+                return
+
+            bot.reply_to(
+                message,
+                f"💎 Premium для `{target_id}`: {'ВКЛ' if result else 'ВЫКЛ'}.",
+                parse_mode="Markdown",
+            )
+            return
+
+        bot.reply_to(message, "🛠 Неизвестная команда. Доступно: `stats`, `broadcast`, `premium`.", parse_mode="Markdown")
 
     @bot.message_handler(content_types=['photo'])
     def handle_incoming_photo(message):

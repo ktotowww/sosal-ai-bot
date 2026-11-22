@@ -39,7 +39,7 @@ def fetch_github_profile_stats(username: str):
         "languages": languages
     }, None
 
-def compare_github_targets(text: str, telegram_username: str, user_id: int):
+def compare_github_targets(text: str, telegram_username: str, user_id: int, guest: bool = False):
     found_urls = re.findall(r'github\.com/([a-zA-Z0-9-]+)', text, re.IGNORECASE)
     
     if len(found_urls) >= 2:
@@ -56,7 +56,7 @@ def compare_github_targets(text: str, telegram_username: str, user_id: int):
 
     if err1 or err2 or not s1 or not s2:
         prompt = f"Сравни двух разработчиков GitHub: {u1} и {u2}. Вынеси саркастичный вердикт, кто из них круче и почему."
-        return ask_text_ai(telegram_username, prompt, user_id, bypass_history=True)
+        return ask_text_ai(telegram_username, prompt, user_id, bypass_history=True, guest=guest)
 
     langs1 = ", ".join(sorted(s1['languages'], key=s1['languages'].get, reverse=True)[:5]) or "Не указаны"
     langs2 = ", ".join(sorted(s2['languages'], key=s2['languages'].get, reverse=True)[:5]) or "Не указаны"
@@ -68,4 +68,4 @@ def compare_github_targets(text: str, telegram_username: str, user_id: int):
         f"Проанализируй эти данные и дай жесткий, саркастичный и смешной вердикт: кто из них круче, кто зашкварнее, загноби их за Си/С++/Python если есть, занизь за отсутствие Rust или похвали если пишут на Rust."
     )
 
-    return ask_text_ai(telegram_username, ai_prompt, user_id, bypass_history=True)
+    return ask_text_ai(telegram_username, ai_prompt, user_id, bypass_history=True, guest=guest)

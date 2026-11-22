@@ -4,6 +4,7 @@ import logging
 import requests
 from config import GOOGLE_API_KEY, SYSTEM_PROMPT, DEFAULT_TEXT_MODEL, FALLBACK_GEMMA_MODEL
 from database import get_user_config, get_user_context, save_user_context
+from people import build_people_section
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +18,37 @@ EXTRACT_PROFILE_PROMPT = (
 )
 
 
-def _build_system_prompt_with_profiles():
-    profiles_section = __import__('user_profiles', fromlist=['build_profiles_section']).build_profiles_section()
-    if profiles_section:
-        return SYSTEM_PROMPT + "\n\n" + profiles_section
-    return SYSTEM_PROMPT
+def build_system_prompt(user_text, history, user_id, guest=False):
+    prompt = SYSTEM_PROMPT
+
+    # Профиль собеседника — это его собственные данные, в гостевом режиме не светим.
+    if not guest:
+        try:
+            from user_profiles import get_user_profile
+            profile = get_user_profile(user_id)
+        except Exception:
+            profile = None
+        if profile:
+            prompt += f"\n\nСОБЕСЕДНИК: {profile}"
+
+    context_parts = []
+    if history:
+        context_parts.extend(
+            msg.get("text", "")
+            for msg in history[-4:]
+            if isinstance(msg, dict) and msg.get("role") == "user"
+        )
+    context_parts.append(user_text or "")
+
+    people_section = build_people_section(
+        " ".join(context_parts),
+        include_private=not guest,
+    )
+    if people_section:
+        prompt += "\n\n" + people_section
+        logger.info(f"Справка о людях добавлена в промпт ({len(people_section)} символов).")
+
+    return prompt
 
 
 def _extract_profile_background(user_id, username, user_text):
@@ -125,7 +152,7 @@ def request_google_studio(model_slug, history, current_text, media_base64=None, 
 
     return None
 
-def ask_text_ai(username, text, real_user_id, media_base64=None, mime_type="image/jpeg", bypass_history=False):
+def ask_text_ai(username, text, real_user_id, media_base64=None, mime_type="image/jpeg", bypass_history=False, guest=False, system_prompt_override=None):
     config = get_user_config(real_user_id)
     chosen_model = config["text_model"]
     
@@ -135,7 +162,9 @@ def ask_text_ai(username, text, real_user_id, media_base64=None, mime_type="imag
     history = [] if bypass_history else get_user_context(real_user_id)
     formatted_user_text = text if bypass_history else f"[{username}]: {text}"
 
-    full_prompt = _build_system_prompt_with_profiles()
+    full_prompt = system_prompt_override or build_system_prompt(
+        formatted_user_text, history, real_user_id, guest=guest
+    )
 
     result = request_google_studio(chosen_model, history, formatted_user_text, media_base64, mime_type, system_prompt_override=full_prompt)
 

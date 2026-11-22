@@ -14,6 +14,25 @@ FALLBACK_GEMMA_MODEL = "gemma-4-31b-it"
 COOLDOWN_TIME = 0        
 MAX_DAILY_REQUESTS = 50   
 
+LEGACY_PEOPLE_MARKER = "БАЗА ДАННЫХ О ЛЮДЯХ"
+
+
+def _prepare_prompt(raw_prompt):
+    # В старых промптах переносы строк могли сохраниться как литеральные "\n".
+    prompt = raw_prompt.replace("\\n", "\n").strip()
+
+    # Если на Render ещё лежит старый промпт с людьми — вырезаем этот блок,
+    # чтобы он не раздувал контекст. Данные о людях теперь живут в people.json.
+    marker_pos = prompt.find(LEGACY_PEOPLE_MARKER)
+    if marker_pos != -1:
+        base_prompt_pos = prompt.find("Ты Sosal AI", marker_pos + len(LEGACY_PEOPLE_MARKER))
+        if base_prompt_pos != -1:
+            logger.warning("Из системного промпта вырезан устаревший блок о людях.")
+            prompt = (prompt[:marker_pos] + prompt[base_prompt_pos:]).strip()
+
+    return prompt
+
+
 def load_system_prompt():
     render_secret_path = "/etc/secrets/system_prompt.txt"
     local_prompt_path = "system_prompt.txt"
@@ -22,7 +41,7 @@ def load_system_prompt():
         try:
             with open(render_secret_path, "r", encoding="utf-8") as f:
                 logger.info("Системный промпт успешно загружен из Render Secret Files.")
-                return f.read().strip()
+                return _prepare_prompt(f.read())
         except Exception as e:
             logger.error(f"Ошибка чтения промпта из {render_secret_path}: {e}")
 
@@ -30,7 +49,7 @@ def load_system_prompt():
         try:
             with open(local_prompt_path, "r", encoding="utf-8") as f:
                 logger.info("Системный промпт успешно загружен из локального файла.")
-                return f.read().strip()
+                return _prepare_prompt(f.read())
         except Exception as e:
             logger.error(f"Ошибка чтения локального промпта: {e}")
 
