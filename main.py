@@ -7,7 +7,7 @@ import logging
 from PIL import Image
 import telebot
 from telebot import apihelper
-from telebot.types import InlineQueryResultPhoto
+from telebot.types import InlineQueryResultArticle, InputTextMessageContent
 
 from config import TELEGRAM_TOKEN
 from database import init_db, is_flooding, check_and_increment_daily_limit, get_user_config
@@ -122,23 +122,15 @@ def handle_raw_guest_update(bot_instance, message_or_update):
             chosen_img_model = model_override or get_user_config(user_id)["image_model"]
             seed = f"{user_id}-{int(time.time())}"
             photo_url = build_pollinations_url(raw_prompt, chosen_img_model, seed=seed, enhance=False)
-            thumbnail_url = build_pollinations_url(
-                raw_prompt,
-                chosen_img_model,
-                width=320,
-                height=320,
-                seed=seed,
-                enhance=False,
-            )
 
             try:
-                result = InlineQueryResultPhoto(
+                result = InlineQueryResultArticle(
                     id=f"guest_pic_{seed}",
-                    photo_url=photo_url,
-                    thumbnail_url=thumbnail_url,
                     title="Sosal AI Art",
-                    description=f"Модуль: {chosen_img_model.upper()}",
-                    caption=f"🖼 Модуль: {chosen_img_model.upper()}",
+                    input_message_content=InputTextMessageContent(
+                        message_text=f"🖼 Модуль: {chosen_img_model.upper()}\n{photo_url}",
+                        parse_mode="Markdown",
+                    ),
                 )
                 bot_instance.answer_guest_query(guest_query_id, result)
             except Exception as e:

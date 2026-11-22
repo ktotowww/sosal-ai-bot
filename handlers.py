@@ -29,7 +29,7 @@ from telebot.types import InlineQueryResultArticle, InputTextMessageContent
 def send_answer_guest_query(bot_instance, guest_query_id, text, title="Sosal AI Response"):
     try:
         result = InlineQueryResultArticle(
-            id="guest_1",
+            id=f"guest_{guest_query_id}_{int(time.time()*1000)}",
             title=title,
             input_message_content=InputTextMessageContent(
                 message_text=text,
