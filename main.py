@@ -120,12 +120,12 @@ def handle_raw_guest_update(bot_instance, message_or_update):
                 return
 
             chosen_img_model = model_override or get_user_config(user_id)["image_model"]
-            seed = f"{user_id}-{int(time.time())}"
+            seed = int(time.time())
             photo_url = build_pollinations_url(raw_prompt, chosen_img_model, seed=seed, enhance=False)
 
             try:
                 result = InlineQueryResultArticle(
-                    id=f"guest_pic_{seed}",
+                    id=f"guest_pic_{user_id}_{seed}",
                     title="Sosal AI Art",
                     input_message_content=InputTextMessageContent(
                         message_text=f"🖼 Модуль: {chosen_img_model.upper()}\n{photo_url}",
